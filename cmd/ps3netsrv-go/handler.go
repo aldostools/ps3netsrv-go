@@ -22,16 +22,58 @@ func (h *Handler) HandleOpenDir(ctx *server.Context, path string) bool {
 	log := h.Log.With(zap.Stringer("remote", ctx.RemoteAddr), zap.String("path", path))
 	log.Info("Open dir")
 
-	info, err := h.Fs.Stat(path)
+	handle, err := h.Fs.Open(path)
+	if err != nil {
+		log.Warn("Open failed", zap.Error(err))
+		return false
+	}
+
+	info, err := handle.Stat()
 	if err != nil {
 		log.Warn("Stat failed", zap.Error(err))
 		return false
 	}
 
+	if ctx.ROFile != nil {
+		if err := ctx.ROFile.Close(); err != nil {
+			log.Warn("Close already opened ctx.ROFile failed", zap.Error(err))
+		}
+	}
+
+	ctx.ROFile = handle
 	ctx.Cwd = &path
 
 	// it's crucial to send "true" for directory and "false" for file
 	return info.IsDir()
+}
+
+func (h *Handler) HandleReadDirEntry(ctx *server.Context) os.FileInfo {
+	log := h.Log.With(zap.Stringer("remote", ctx.RemoteAddr))
+	log.Info("Read Dir Entry")
+
+	if ctx.Cwd == nil || ctx.ROFile == nil {
+		log.Warn("Reading non-opened dir")
+		return nil
+	}
+
+	info, err := ctx.ROFile.Readdir(1)
+	if errors.Is(err, io.EOF) {
+		return nil
+	} else if err != nil {
+		log.Warn("Readdir failed", zap.Error(err))
+		return nil
+	}
+
+	// Stat resolves a symlink
+	fileInfo, err := h.Fs.Stat(*ctx.Cwd + "/" + info[0].Name())
+	if err != nil {
+		log.Warn("Stat failed", zap.Error(err))
+		// If it doesn't exist (deleted or broken symlink?) or we get a permission error (symlink
+		// to file in dir we don't have x on?), or any other error, we just skip it, and try
+		// the next entry returned by Readdir(). Recursion seems like the most simple way to do this.
+		return h.HandleReadDirEntry(ctx)
+	}
+	return fileInfo
 }
 
 func (h *Handler) HandleReadDir(ctx *server.Context) []os.FileInfo {

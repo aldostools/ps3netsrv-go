@@ -45,6 +45,7 @@ func (s *Context) Close() error {
 type Handler interface {
 	HandleOpenDir(ctx *Context, path string) bool
 	HandleReadDir(ctx *Context) []os.FileInfo
+	HandleReadDirEntry(ctx *Context) os.FileInfo
 	HandleStatFile(ctx *Context, path string) (os.FileInfo, error)
 	HandleOpenFile(ctx *Context, path string) error
 	HandleCloseFile(ctx *Context)
