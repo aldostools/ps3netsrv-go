@@ -51,7 +51,20 @@ func (h *Handler) HandleReadDir(ctx *server.Context) []os.FileInfo {
 		return []os.FileInfo{}
 	}
 
-	return entries
+	// Resolve symbolic links
+	var files []os.FileInfo
+	for _, entry := range entries {
+		// Stat the entry to get its file info
+		info, err := h.Fs.Stat(*ctx.Cwd + "/" + entry.Name())
+		if err != nil {
+			log.Warn("Stat failed", zap.Error(err))
+			// Ignore broken symbolic links
+			continue
+		}
+		files = append(files, info)
+	}
+
+	return files
 }
 
 func (h *Handler) HandleStatFile(ctx *server.Context, path string) (os.FileInfo, error) {
